@@ -5,111 +5,92 @@ import asyncio
 import os
 from dotenv import load_dotenv
 
-# Tải biến môi trường từ file .env
 load_dotenv()
 
-# Định nghĩa intents cho bot
 intents = discord.Intents.all()
 
-# Khởi tạo bot với tiền tố lệnh và intents
 client = commands.Bot(command_prefix='!', intents=intents)
+
+queues = {}
 
 @client.event
 async def on_ready():
-    print(f'Đã đăng nhập {client.user.name}')
+    print(f'Đã đăng nhập với tên: {client.user.name}')
 
-@client.event
-async def on_member_join(member):
-    """Chào đón thành viên mới vào kênh text cụ thể."""
-    text_channel = discord.utils.get(member.guild.text_channels, name='general')
-    if text_channel:
-        await text_channel.send(f"Chào mừng {member.mention} đã đến với server!")
-
-@client.event
-async def on_member_remove(member):
-    """Tiễn biệt thành viên rời server trong kênh text hoặc kênh hệ thống."""
-    text_channel = discord.utils.get(member.guild.text_channels, name='general') or member.guild.system_channel
-    if text_channel:
-        await text_channel.send(f"Tạm biệt {member.mention}! Hy vọng bạn quay lại!")
-
-@client.command()
-async def join(ctx):
-    """Bot vào kênh thoại của người ra lệnh."""
-    if ctx.author.voice:
-        await ctx.author.voice.channel.connect()
-    else:
-        await ctx.send("Bạn cần phải ở trong kênh thoại để sử dụng lệnh này!")
-
-@client.command()
-async def leave(ctx):
-    """Bot rời khỏi kênh thoại."""
-    if ctx.voice_client:
-        await ctx.voice_client.disconnect()
-    else:
-        await ctx.send("Bot không ở trong kênh thoại nào.")
-
-async def extract_info(url, ydl_opts):
-    """Trích xuất thông tin video mà không tải xuống."""
-    with youtube_dl.YoutubeDL(ydl_opts) as ydl:
-        return await asyncio.get_event_loop().run_in_executor(None, lambda: ydl.extract_info(url, download=False))
-
-@client.command()
-async def play(ctx, url):
-    """Phát nhạc từ URL YouTube trong kênh thoại."""
-    if not ctx.author.voice or not ctx.author.voice.channel:
-        await ctx.send("Bạn cần phải ở trong kênh thoại để phát nhạc!")
-        return
-
-    voice_channel = discord.utils.get(client.voice_clients, guild=ctx.guild)
-    if not voice_channel:
-        voice_channel = await ctx.author.voice.channel.connect()
-
+async def extract_info(url):
     ydl_opts = {
         'format': 'bestaudio/best',
         'quiet': True,
-        'source_address': '0.0.0.0',  # Tránh bị chặn IP bởi YouTube
+        'source_address': '0.0.0.0',
+        'extract_flat': 'in_playlist',
+        'noplaylist': True,
     }
-    
-    try:
-        info = await extract_info(url, ydl_opts)
-        video_url = info['url']
-        voice_channel.stop()
+    with youtube_dl.YoutubeDL(ydl_opts) as ydl:
+        return await asyncio.get_event_loop().run_in_executor(None, lambda: ydl.extract_info(url, download=False))
 
-        # Cài đặt FFmpeg để cải thiện trải nghiệm phát
-        voice_channel.play(discord.FFmpegPCMAudio(video_url, before_options="-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"), after=lambda e: None)
+def check_queue(ctx, guild_id):
+    if queues.get(guild_id) and len(queues[guild_id]) > 0:
+        voice_client = discord.utils.get(client.voice_clients, guild=ctx.guild)
+        source = queues[guild_id].pop(0)
+        voice_client.play(source, after=lambda x=None: check_queue(ctx, guild_id))
+
+@client.command()
+async def play(ctx, url):
+    guild_id = ctx.guild.id
+    voice_channel = discord.utils.get(client.voice_clients, guild=ctx.guild)
+    if not voice_channel:
+        if ctx.author.voice:
+            voice_channel = await ctx.author.voice.channel.connect()
+        else:
+            await ctx.send("Bạn cần phải trong kênh thoại để phát nhạc.")
+            return
+
+    info = await extract_info(url)
+    video_url = info.get('url')
+    source = discord.FFmpegPCMAudio(video_url, before_options='-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', options='-vn')
+
+    if not voice_channel.is_playing():
+        voice_channel.play(source, after=lambda x=None: check_queue(ctx, guild_id))
         await ctx.send(f"Đang phát: {info['title']}")
-    except Exception as e:
-        await ctx.send(f"Có lỗi xảy ra: {e}")
+    else:
+        queues.setdefault(guild_id, []).append(source)
+        await ctx.send(f"{info['title']} đã được thêm vào hàng đợi.")
+
+@client.command()
+async def skip(ctx):
+    guild_id = ctx.guild.id
+    voice_client = discord.utils.get(client.voice_clients, guild=ctx.guild)
+    if voice_client and voice_client.is_playing():
+        voice_client.stop()
+        check_queue(ctx, guild_id)
+        await ctx.send("Bài hát hiện tại đã bị bỏ qua.")
 
 @client.command()
 async def pause(ctx):
-    """Tạm dừng phát nhạc."""
-    voice_channel = discord.utils.get(client.voice_clients, guild=ctx.guild)
-    if voice_channel and voice_channel.is_playing():
-        voice_channel.pause()
-        await ctx.send("Đã tạm dừng.")
-    else:
-        await ctx.send("Hiện không có bài nhạc nào đang phát.")
+    voice_client = discord.utils.get(client.voice_clients, guild=ctx.guild)
+    if voice_client and voice_client.is_playing():
+        voice_client.pause()
+        await ctx.send("Đã tạm dừng phát nhạc.")
 
 @client.command()
 async def resume(ctx):
-    """Tiếp tục phát nhạc."""
-    voice_channel = discord.utils.get(client.voice_clients, guild=ctx.guild)
-    if voice_channel and voice_channel.is_paused():
-        voice_channel.resume()
-        await ctx.send("Đã tiếp tục phát nhạc.")
-    else:
-        await ctx.send("Hiện không có bài nhạc nào đang được tạm dừng.")
+    voice_client = discord.utils.get(client.voice_clients, guild=ctx.guild)
+    if voice_client and voice_client.is_paused():
+        voice_client.resume()
+        await ctx.send("Tiếp tục phát nhạc.")
 
 @client.command()
 async def stop(ctx):
-    """Dừng phát nhạc."""
-    voice_channel = discord.utils.get(client.voice_clients, guild=ctx.guild)
-    if voice_channel:
-        voice_channel.stop()
+    voice_client = discord.utils.get(client.voice_clients, guild=ctx.guild)
+    if voice_client:
+        voice_client.stop()
         await ctx.send("Đã dừng phát nhạc.")
-    else:
-        await ctx.send("Hiện không có bài nhạc nào đang phát.")
 
-# Khởi động bot
+@client.command()
+async def clear_queue(ctx):
+    guild_id = ctx.guild.id
+    if guild_id in queues:
+        queues[guild_id] = []
+        await ctx.send("Đã xóa hàng đợi.")
+
 client.run(os.getenv("TOKEN"))
