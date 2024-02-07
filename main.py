@@ -16,15 +16,13 @@ async def on_ready():
 
 @client.event
 async def on_member_join(member):
-    text_channel = discord.utils.get(member.guild.channels, type=discord.TextChannel)
-    
+    text_channel = discord.utils.get(member.guild.text_channels, name='general')  # Adjust 'general' to your preferred channel
     if text_channel:
         await text_channel.send(f"Hello {member.mention}! Welcome to the server.")
 
 @client.event
 async def on_member_remove(member):
-    text_channel = discord.utils.get(member.guild.channels, type=discord.TextChannel)
-    
+    text_channel = discord.utils.get(member.guild.text_channels, name='general')  # Adjust 'general' to your preferred channel
     if text_channel:
         await text_channel.send(f"Goodbye {member.mention}! We'll miss you.")
 
@@ -38,7 +36,7 @@ async def join(ctx):
 @client.command(pass_context=True)
 async def leave(ctx):
     if ctx.voice_client:
-        await ctx.guild.voice_client.disconnect()
+        await ctx.voice_client.disconnect()
     else:
         await ctx.send("I am not in a voice channel")
 
@@ -60,7 +58,7 @@ async def play(ctx, url):
         'format': 'bestaudio/best',
         'default_search': 'auto',
         'quiet': True,
-        'source_address': '0.0.0.0',  # This may help with avoiding IP bans
+        'source_address': '0.0.0.0',
         'extract_flat': 'in_playlist',
         'noplaylist': True,
     }
@@ -69,37 +67,18 @@ async def play(ctx, url):
         info = await extract_info(url, ydl_opts)
         video_url = info['url']
 
-        # Check if voice_channel is still valid after connecting
-        if not voice_channel or not voice_channel.is_connected():
-            voice_channel = await ctx.author.voice.channel.connect()
-
-        # Ensure that the voice_channel is playing before stopping
-        if voice_channel.is_playing():
+        if voice_channel.is_playing() or voice_channel.is_paused():
             voice_channel.stop()
 
-        voice_channel.play(discord.FFmpegPCMAudio(video_url, before_options="-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"), 
-                           after=lambda e: print(f'Playback finished: {e}' if e else 'Playback finished successfully.'))
+        FFMPEG_OPTIONS = {
+            'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
+            'options': '-vn'
+        }
+        voice_channel.play(discord.FFmpegPCMAudio(video_url, **FFMPEG_OPTIONS), after=lambda e: print(f'Playback finished: {e}' if e else 'Playback finished successfully.'))
+
         await ctx.send(f"Now playing: {info['title']}")
     except Exception as e:
         await ctx.send(f"An error occurred: {e}")
         print(f"Error: {e}")
-
-@client.command(pass_context=True)
-async def pause(ctx):
-    voice = discord.utils.get(client.voice_clients, guild=ctx.guild)
-    
-    if voice.is_playing():
-        voice.pause()
-    else:
-        await ctx.send("At the moment, there is no audio playing in the channel!")
-
-@client.command(pass_context=True)
-async def resume(ctx):
-    voice = discord.utils.get(client.voice_clients, guild=ctx.guild)
-    
-    if voice.is_paused():
-        voice.resume()
-    else: 
-        await ctx.send("At the moment, no song is paused!")
 
 client.run(os.getenv("TOKEN"))
