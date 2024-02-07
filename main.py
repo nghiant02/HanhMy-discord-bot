@@ -1,53 +1,63 @@
 import discord
 from discord.ext import commands
-from dotenv import load_dotenv
 import yt_dlp as youtube_dl
 import asyncio
 import os
+from dotenv import load_dotenv
 
+# Tải biến môi trường từ file .env
 load_dotenv()
 
+# Định nghĩa intents cho bot
 intents = discord.Intents.all()
+
+# Khởi tạo bot với tiền tố lệnh và intents
 client = commands.Bot(command_prefix='!', intents=intents)
 
 @client.event
 async def on_ready():
-    print(f'Logged in as {client.user.name}')
+    print(f'Đã đăng nhập {client.user.name}')
 
 @client.event
 async def on_member_join(member):
-    text_channel = discord.utils.get(member.guild.text_channels, name='general')  # Adjust 'general' to your preferred channel
+    """Chào đón thành viên mới vào kênh text cụ thể."""
+    text_channel = discord.utils.get(member.guild.text_channels, name='general')
     if text_channel:
-        await text_channel.send(f"Hello {member.mention}! Welcome to the server.")
+        await text_channel.send(f"Chào mừng {member.mention} đã đến với server!")
 
 @client.event
 async def on_member_remove(member):
-    text_channel = discord.utils.get(member.guild.text_channels, name='general')  # Adjust 'general' to your preferred channel
+    """Tiễn biệt thành viên rời server trong kênh text hoặc kênh hệ thống."""
+    text_channel = discord.utils.get(member.guild.text_channels, name='general') or member.guild.system_channel
     if text_channel:
-        await text_channel.send(f"Goodbye {member.mention}! We'll miss you.")
+        await text_channel.send(f"Tạm biệt {member.mention}! Hy vọng bạn quay lại!")
 
-@client.command(pass_context=True)
+@client.command()
 async def join(ctx):
+    """Bot vào kênh thoại của người ra lệnh."""
     if ctx.author.voice:
         await ctx.author.voice.channel.connect()
     else:
-        await ctx.send("You are not in a voice channel. You must be in a voice channel to run this command!")
+        await ctx.send("Bạn cần phải ở trong kênh thoại để sử dụng lệnh này!")
 
-@client.command(pass_context=True)
+@client.command()
 async def leave(ctx):
+    """Bot rời khỏi kênh thoại."""
     if ctx.voice_client:
         await ctx.voice_client.disconnect()
     else:
-        await ctx.send("I am not in a voice channel")
+        await ctx.send("Bot không ở trong kênh thoại nào.")
 
 async def extract_info(url, ydl_opts):
+    """Trích xuất thông tin video mà không tải xuống."""
     with youtube_dl.YoutubeDL(ydl_opts) as ydl:
         return await asyncio.get_event_loop().run_in_executor(None, lambda: ydl.extract_info(url, download=False))
 
-@client.command(pass_context=True)
+@client.command()
 async def play(ctx, url):
-    if not ctx.author.voice:
-        await ctx.send("You are not in a voice channel. You must be in a voice channel to run this command!")
+    """Phát nhạc từ URL YouTube trong kênh thoại."""
+    if not ctx.author.voice or not ctx.author.voice.channel:
+        await ctx.send("Bạn cần phải ở trong kênh thoại để phát nhạc!")
         return
 
     voice_channel = discord.utils.get(client.voice_clients, guild=ctx.guild)
@@ -56,29 +66,50 @@ async def play(ctx, url):
 
     ydl_opts = {
         'format': 'bestaudio/best',
-        'default_search': 'auto',
         'quiet': True,
-        'source_address': '0.0.0.0',
-        'extract_flat': 'in_playlist',
-        'noplaylist': True,
+        'source_address': '0.0.0.0',  # Tránh bị chặn IP bởi YouTube
     }
-
+    
     try:
         info = await extract_info(url, ydl_opts)
         video_url = info['url']
+        voice_channel.stop()
 
-        if voice_channel.is_playing() or voice_channel.is_paused():
-            voice_channel.stop()
-
-        FFMPEG_OPTIONS = {
-            'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
-            'options': '-vn'
-        }
-        voice_channel.play(discord.FFmpegPCMAudio(video_url, **FFMPEG_OPTIONS), after=lambda e: print(f'Playback finished: {e}' if e else 'Playback finished successfully.'))
-
-        await ctx.send(f"Now playing: {info['title']}")
+        # Cài đặt FFmpeg để cải thiện trải nghiệm phát
+        voice_channel.play(discord.FFmpegPCMAudio(video_url, before_options="-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"), after=lambda e: None)
+        await ctx.send(f"Đang phát: {info['title']}")
     except Exception as e:
-        await ctx.send(f"An error occurred: {e}")
-        print(f"Error: {e}")
+        await ctx.send(f"Có lỗi xảy ra: {e}")
 
+@client.command()
+async def pause(ctx):
+    """Tạm dừng phát nhạc."""
+    voice_channel = discord.utils.get(client.voice_clients, guild=ctx.guild)
+    if voice_channel and voice_channel.is_playing():
+        voice_channel.pause()
+        await ctx.send("Đã tạm dừng.")
+    else:
+        await ctx.send("Hiện không có bài nhạc nào đang phát.")
+
+@client.command()
+async def resume(ctx):
+    """Tiếp tục phát nhạc."""
+    voice_channel = discord.utils.get(client.voice_clients, guild=ctx.guild)
+    if voice_channel and voice_channel.is_paused():
+        voice_channel.resume()
+        await ctx.send("Đã tiếp tục phát nhạc.")
+    else:
+        await ctx.send("Hiện không có bài nhạc nào đang được tạm dừng.")
+
+@client.command()
+async def stop(ctx):
+    """Dừng phát nhạc."""
+    voice_channel = discord.utils.get(client.voice_clients, guild=ctx.guild)
+    if voice_channel:
+        voice_channel.stop()
+        await ctx.send("Đã dừng phát nhạc.")
+    else:
+        await ctx.send("Hiện không có bài nhạc nào đang phát.")
+
+# Khởi động bot
 client.run(os.getenv("TOKEN"))
