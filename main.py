@@ -4,6 +4,9 @@ import yt_dlp as youtube_dl
 import asyncio
 from dotenv import load_dotenv
 import os
+from keep_alive import keep_alive
+
+keep_alive()
 
 load_dotenv()
 
