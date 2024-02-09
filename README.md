@@ -1,25 +1,24 @@
 # HanhMy Discord Bot
 
 ## Overview
-HanhMy is a Discord bot that streams music from YouTube URLs in voice channels. It uses Python, discord.py for Discord integration, yt_dlp for downloading audio, and is kept alive on servers with a web server script.
+HanhMy is a Discord bot that plays YouTube music in voice channels. Built with Python, it allows users to enjoy shared listening experiences on Discord.
 
-## Installation
-1. Clone the repository: `git clone https://github.com/nghiant02/HanhMy-discord-bot`
-2. Navigate to the bot directory.
-3. Install dependencies: `pip install -r requirements.txt`
-4. Set up your Discord bot token in a `.env` file.
+## Setup
+1. Clone the repo.
+2. Install dependencies with `pip install -r requirements.txt`.
+3. Set `.env` with `DISCORD_TOKEN` and other necessary configurations.
+4. Run `python main.py` to start the bot.
 
-## Usage
-Run the bot with: `python main.py`
-Use commands in Discord:
-- `!play [URL]` to play music.
-- `!pause`, `!resume`, `!stop`, and `!clear_queue` to manage playback.
+## Features
+- Streams music from YouTube URLs.
+- Music control commands for an interactive experience.
+- Queue management for uninterrupted playback.
 
 ## Deployment
-The bot is designed to be deployed on cloud platforms like Render and monitored with UptimeRobot for consistent online presence.
+Deploy on Render and use UptimeRobot for constant uptime checks.
 
 ## Contributing
-Fork the repo, make your changes, and create a pull request if you'd like to contribute.
+Contributions are welcome. Fork, alter, and submit a pull request.
 
 ## Contact
-Submit issues or reach out for support through the GitHub repository.
+For support or queries, open an issue or discussion via the GitHub repository.
